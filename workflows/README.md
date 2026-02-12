@@ -87,3 +87,9 @@ Use this when you don’t have a real alert yet.
 ```
 
 The RCA step will receive this as `event`; the agent will analyze it and can query your data. The case will be created and the alert comment will reference this test alert id/index. If a step fails, open that step in the run result to see the error (e.g. Converse, case creation, or conversation fetch).
+
+### If the RCA step keeps spinning
+
+1. **Wrong agent id** – The workflow uses `agent_id: sre-agent`. On Elastic Serverless the default is often `elastic-ai-agent`. In the workflow YAML, change all three Converse steps (`rca_analysis`, `create_case_title`, `create_case_description`) to use `agent_id: elastic-ai-agent` and save. Re-run the test.
+2. **Large payload** – The workflow no longer sends the full `event | json`; it sends only rule name, rule id, and alert id so the Converse request stays small. If you reverted to `{{ event | json }}`, replace it with the summarized prompt to avoid timeouts or hangs.
+3. **Timeout** – The first step uses a 2m timeout so it fails fast. If the agent is slow, increase `timeout` on the `rca_analysis` step (e.g. back to `10m`).

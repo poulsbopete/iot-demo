@@ -163,7 +163,7 @@ export default function Home() {
         {/* Center: charts + alerts */}
         <main className="lg:col-span-6 space-y-4">
           <section>
-            <h2 className="text-sm font-semibold text-ecolab-navy mb-2">Alert Banners</h2>
+            <h2 className="text-sm font-semibold text-ecolab-navy mb-2">Ecolab Cases</h2>
             <AlertBanners />
           </section>
           <section>

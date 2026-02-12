@@ -7,6 +7,61 @@ import * as elastic from "./elastic";
 import type { MCPToolCall, MCPToolResult } from "./types";
 
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? "";
+const ELASTIC_AGENT_ID = process.env.ELASTIC_AGENT_ID ?? "elastic-ai-agent";
+
+/** Derive Kibana base URL from MCP_SERVER_URL (e.g. .../api/agent_builder/mcp -> ...). */
+function getKibanaBaseFromMCP(): string {
+  const u = MCP_SERVER_URL.replace(/\/+$/, "");
+  return u.replace(/\/api\/agent_builder\/mcp\/?$/i, "") || u;
+}
+
+/**
+ * Send the user's question to the Elastic Agent Builder Converse API (same agent as Agent Chat).
+ * The agent runs reasoning and tools (e.g. platform.core.search, synthetics.alerts) and returns the reply.
+ */
+export async function callElasticAgentConverse(question: string): Promise<{ message: string; error?: string }> {
+  const base = getKibanaBaseFromMCP();
+  const apiKey = process.env.ELASTIC_API_KEY ?? "";
+  if (!base || !apiKey) {
+    return { message: "", error: "MCP_SERVER_URL and ELASTIC_API_KEY are required for Elastic Agent Converse." };
+  }
+  try {
+    const res = await fetch(`${base}/api/agent_builder/converse`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "kbn-xsrf": "true",
+        Authorization: `ApiKey ${apiKey}`,
+      },
+      body: JSON.stringify({
+        input: question,
+        agent_id: ELASTIC_AGENT_ID,
+      }),
+    });
+    const data = (await res.json()) as {
+      response?: { message?: string };
+      steps?: unknown[];
+      conversation_id?: string;
+      message?: string;
+    };
+    if (!res.ok) {
+      const err = data.message ?? (data as { error?: string }).error ?? res.statusText;
+      return { message: "", error: String(err) };
+    }
+    const message = data.response?.message ?? "";
+    return { message: message || "No response from agent." };
+  } catch (e) {
+    return {
+      message: "",
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+/** True when MCP_SERVER_URL points at Elastic Agent Builder (Kibana). */
+export function isElasticAgentBuilderMCP(): boolean {
+  return /\/api\/agent_builder\/mcp\/?$/i.test(MCP_SERVER_URL.replace(/\/+$/, ""));
+}
 
 export const INTERNAL_TOOLS = [
   "elastic.esql_query",
@@ -125,6 +180,31 @@ export async function invokeTools(toolCalls: MCPToolCall[]): Promise<MCPToolResu
     results.push(r);
   }
   return results;
+}
+
+const CANNED_IDS = [
+  "overdosing",
+  "pump_failures",
+  "sanitizer_by_site",
+  "abnormal_device",
+  "status_summary",
+] as const;
+
+/** Match freeform question to a canned questionId so we can run the same MCP/tool flow. */
+export function matchFreeformToCannedQuestion(question: string): string | null {
+  const q = question.toLowerCase().trim().replace(/\s+/g, " ");
+  if (!q) return null;
+  const checks: { id: (typeof CANNED_IDS)[number]; keywords: string[] }[] = [
+    { id: "overdosing", keywords: ["overdos", "chemical", "dosing"] },
+    { id: "pump_failures", keywords: ["pump", "failure", "failures", "failed"] },
+    { id: "sanitizer_by_site", keywords: ["sanitizer", "sanitiser", "ppm", "by site"] },
+    { id: "abnormal_device", keywords: ["abnormal", "device", "behaving", "anomal"] },
+    { id: "status_summary", keywords: ["status", "summary", "plain", "english", "overview"] },
+  ];
+  for (const { id, keywords } of checks) {
+    if (keywords.some((k) => q.includes(k))) return id;
+  }
+  return null;
 }
 
 /** Canned question → tool calls. */

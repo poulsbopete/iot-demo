@@ -3,12 +3,24 @@
  * Uses OpenTelemetry SDK in a serverless-friendly way: create meter provider + export one batch per invocation.
  */
 
+import { Resource } from "@opentelemetry/resources";
 import { MeterProvider, PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import type { MetricBatch } from "./types";
 
 const OTLP_ENDPOINT = process.env.OTLP_ENDPOINT ?? process.env.ELASTIC_ENDPOINT ?? "";
 const OTLP_HEADERS = process.env.OTLP_HEADERS ?? "";
+
+/** Build the OTLP metrics export URL (for ingest). Ingest host → /v1/metrics; .es. host → /_otlp/v1/metrics. */
+export function getOTLPMetricsExportUrl(): string {
+  const url = OTLP_ENDPOINT.replace(/\/+$/, "");
+  const endpoint = url.startsWith("http") ? url : `https://${url}`;
+  const hasPath = endpoint.includes("/_otlp") || endpoint.includes("/v1/metrics") || endpoint.split("/").length > 3;
+  if (hasPath) return endpoint;
+  return endpoint.includes(".ingest.")
+    ? `${endpoint}/v1/metrics`
+    : `${endpoint}/_otlp/v1/metrics`;
+}
 
 function parseHeaders(headerStr: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -32,13 +44,7 @@ export async function exportBatchToOTLP(batch: MetricBatch): Promise<{ ok: boole
     return { ok: false, error: "OTLP_ENDPOINT not set" };
   }
 
-  const url = OTLP_ENDPOINT.replace(/\/+$/, "");
-  const endpoint = url.startsWith("http") ? url : `https://${url}`;
-  // Elastic Serverless uses /_otlp/v1/metrics; if endpoint has no path, append it
-  const exportUrl =
-    endpoint.includes("/_otlp") || endpoint.includes("/v1/metrics")
-      ? endpoint
-      : `${endpoint}/_otlp/v1/metrics`;
+  const exportUrl = getOTLPMetricsExportUrl();
   const headers = parseHeaders(OTLP_HEADERS);
 
   const exporter = new OTLPMetricExporter({
@@ -51,7 +57,8 @@ export async function exportBatchToOTLP(batch: MetricBatch): Promise<{ ok: boole
     exportIntervalMillis: 999999,
     exportTimeoutMillis: 5000,
   });
-  const meterProvider = new MeterProvider({ readers: [reader] });
+  const resource = new Resource({ "service.name": "ecolab-iot-demo" });
+  const meterProvider = new MeterProvider({ resource, readers: [reader] });
   const meter = meterProvider.getMeter("ecolab-iot-demo", "1.0.0");
 
   try {

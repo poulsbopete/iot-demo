@@ -75,7 +75,7 @@ export function CopilotPanel() {
           ))}
         </div>
         <div className="pt-2">
-          <label className="text-xs text-ecolab-gray block mb-1">Freeform (demo: use canned for tool calls)</label>
+          <label className="text-xs text-ecolab-gray block mb-1">Freeform (e.g. “any pump failures?” — runs MCP/tools when matched)</label>
           <div className="flex gap-2">
             <input
               type="text"

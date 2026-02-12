@@ -25,13 +25,18 @@ function metricToField(metricName: string): string {
   return `metrics.${metricName}`;
 }
 
+/** Alternative: dots → underscores (some OTLP mappings do this). */
+function metricToFieldUnderscore(metricName: string): string {
+  return `metrics.${metricName.replace(/\./g, "_")}`;
+}
+
 /** Dimension field for site/device (OTLP uses attributes.* or resource.attributes.*). */
 const SITE_FIELD = "attributes.site.name";
 const SITE_FIELD_LEGACY = "labels.site.name";
 const DEVICE_FIELD = "attributes.device.id";
 const DEVICE_FIELD_LEGACY = "labels.device.id";
 
-/** Discover metrics data stream pattern (e.g. metrics-*). */
+/** Discover metrics data stream pattern. Prefer metrics-generic.otel-default (Managed OTLP default). */
 export async function discoverMetricsIndices(): Promise<string> {
   if (!ELASTIC_ENDPOINT || !ELASTIC_API_KEY) {
     return "metrics-*";
@@ -40,19 +45,20 @@ export async function discoverMetricsIndices(): Promise<string> {
     const res = await fetch(`${getBaseUrl()}/_data_stream`, {
       headers: getHeaders(),
     });
-    if (!res.ok) return "metrics-*";
+    if (!res.ok) return "metrics-generic.otel-default";
     const data = (await res.json()) as { data_streams?: { name: string }[] };
     const streams = data.data_streams ?? [];
     const metricsStreams = streams
       .filter((s) => s.name.startsWith("metrics-"))
       .map((s) => s.name);
     if (metricsStreams.length > 0) {
-      return metricsStreams.length === 1 ? metricsStreams[0]! : "metrics-*";
+      const preferred = metricsStreams.find((s) => s === "metrics-generic.otel-default");
+      return preferred ?? (metricsStreams.length === 1 ? metricsStreams[0]! : "metrics-*");
     }
   } catch {
     // ignore
   }
-  return "metrics-*";
+  return "metrics-generic.otel-default";
 }
 
 /** Run search and return parsed JSON; on 400/404 return null so callers can return empty data. */
@@ -117,6 +123,21 @@ export async function getMetricsSummary(
   return empty;
 }
 
+/** Run timeseries agg for a given value field; returns buckets or empty. */
+function parseTimeseriesBuckets(result: { ok: true; data: unknown } | { ok: false }): TimeSeriesBucket[] {
+  if (!result.ok) return [];
+  const data = result.data as {
+    aggregations?: {
+      over_time?: { buckets?: { key_as_string: string; value: { value: number } }[] };
+    };
+  };
+  const buckets = data.aggregations?.over_time?.buckets ?? [];
+  return buckets.map((b) => ({
+    time: b.key_as_string,
+    value: b.value?.value ?? 0,
+  }));
+}
+
 /** GET /api/metrics/timeseries - chart data. Tries OTLP TSDS (metrics.*) then legacy (metric.name/value). */
 export async function getTimeseries(
   metric: string,
@@ -126,28 +147,27 @@ export async function getTimeseries(
   interval: string = "1m"
 ): Promise<TimeSeriesBucket[]> {
   const index = await discoverMetricsIndices();
-  const valueFieldTsds = metricToField(metric);
-
-  // Try OTLP TSDS: aggregate the metric field directly (e.g. metrics.chemical.dosing_rate_lpm)
-  const mustTsds: Record<string, unknown>[] = [
-    { range: { "@timestamp": { gte: from, lte: to } } },
-    { exists: { field: valueFieldTsds } },
-  ];
-  if (site) {
-    // OTLP may store dimensions in attributes.* or resource.attributes.*
-    mustTsds.push({
-      bool: {
-        should: [
-          { term: { [SITE_FIELD]: site } },
-          { term: { "resource.attributes.site.name": site } },
-        ],
-        minimum_should_match: 1,
-      },
-    });
-  }
-  const queryTsds = {
+  const buildMust = (valueField: string): Record<string, unknown>[] => {
+    const must: Record<string, unknown>[] = [
+      { range: { "@timestamp": { gte: from, lte: to } } },
+      { exists: { field: valueField } },
+    ];
+    if (site) {
+      must.push({
+        bool: {
+          should: [
+            { term: { [SITE_FIELD]: site } },
+            { term: { "resource.attributes.site.name": site } },
+          ],
+          minimum_should_match: 1,
+        },
+      });
+    }
+    return must;
+  };
+  const buildQuery = (valueField: string) => ({
     size: 0,
-    query: { bool: { must: mustTsds } },
+    query: { bool: { must: buildMust(valueField) } },
     aggs: {
       over_time: {
         date_histogram: {
@@ -155,30 +175,50 @@ export async function getTimeseries(
           fixed_interval: interval,
           min_doc_count: 1,
         },
-        aggs: {
-          value: { avg: { field: valueFieldTsds } },
+        aggs: { value: { avg: { field: valueField } } },
+      },
+    },
+  });
+
+  // 1) OTLP TSDS with dots: metrics.chemical.dosing_rate_lpm
+  const fieldDots = metricToField(metric);
+  let result = await search(index, buildQuery(fieldDots));
+  let buckets = parseTimeseriesBuckets(result);
+  if (buckets.length > 0) return buckets;
+
+  // 2) OTLP TSDS with underscores: metrics.chemical_dosing_rate_lpm
+  const fieldUnderscore = metricToFieldUnderscore(metric);
+  result = await search(index, buildQuery(fieldUnderscore));
+  buckets = parseTimeseriesBuckets(result);
+  if (buckets.length > 0) return buckets;
+
+  // 3) No site filter (in case dimension field names differ)
+  const queryNoSite = {
+    size: 0,
+    query: {
+      bool: {
+        must: [
+          { range: { "@timestamp": { gte: from, lte: to } } },
+          { exists: { field: fieldDots } },
+        ],
+      },
+    },
+    aggs: {
+      over_time: {
+        date_histogram: {
+          field: "@timestamp",
+          fixed_interval: interval,
+          min_doc_count: 1,
         },
+        aggs: { value: { avg: { field: fieldDots } } },
       },
     },
   };
+  result = await search(index, queryNoSite);
+  buckets = parseTimeseriesBuckets(result);
+  if (buckets.length > 0) return buckets;
 
-  const resultTsds = await search(index, queryTsds);
-  if (resultTsds.ok) {
-    const data = resultTsds.data as {
-      aggregations?: {
-        over_time?: { buckets?: { key_as_string: string; value: { value: number } }[] };
-      };
-    };
-    const buckets = data.aggregations?.over_time?.buckets ?? [];
-    if (buckets.length > 0) {
-      return buckets.map((b) => ({
-        time: b.key_as_string,
-        value: b.value?.value ?? 0,
-      }));
-    }
-  }
-
-  // Fallback: legacy schema (metric.name + metric.value)
+  // 4) Legacy schema (metric.name + metric.value)
   const mustLegacy: Record<string, unknown>[] = [
     { range: { "@timestamp": { gte: from, lte: to } } },
     { term: { "metric.name": metric } },
@@ -203,16 +243,47 @@ export async function getTimeseries(
     if (resultLegacy.status === 400 || resultLegacy.status === 404) return [];
     throw new Error(`Elasticsearch error: ${resultLegacy.status} ${resultLegacy.body}`);
   }
-  const dataLegacy = resultLegacy.data as {
-    aggregations?: {
-      over_time?: { buckets?: { key_as_string: string; value: { value: number } }[] };
+  const legacyBuckets = parseTimeseriesBuckets(resultLegacy);
+  if (legacyBuckets.length > 0) return legacyBuckets;
+
+  // 5) Discover from sample: find a numeric field whose name matches the metric
+  const { sample } = await getMetricsSample(from, to);
+  if (sample && typeof sample === "object") {
+    const flatKeys = new Set<string>();
+    const collectKeys = (obj: unknown, prefix: string): void => {
+      if (obj == null) return;
+      if (typeof obj === "number" || typeof obj === "boolean") {
+        if (prefix) flatKeys.add(prefix);
+        return;
+      }
+      if (typeof obj === "object" && !Array.isArray(obj)) {
+        for (const [k, v] of Object.entries(obj)) {
+          const next = prefix ? `${prefix}.${k}` : k;
+          if (typeof v === "number") flatKeys.add(next);
+          else collectKeys(v, next);
+        }
+      }
     };
-  };
-  const bucketsLegacy = dataLegacy.aggregations?.over_time?.buckets ?? [];
-  return bucketsLegacy.map((b) => ({
-    time: b.key_as_string,
-    value: b.value?.value ?? 0,
-  }));
+    collectKeys(sample, "");
+    const metricSlug = metric.replace(/\./g, "_");
+    const candidate = Array.from(flatKeys).find(
+      (key) =>
+        key === metric ||
+        key === fieldDots ||
+        key === fieldUnderscore ||
+        key.endsWith(`.${metric}`) ||
+        key.endsWith(`.${metricSlug}`) ||
+        key.includes(metric) ||
+        key.includes(metricSlug)
+    );
+    if (candidate) {
+      result = await search(index, buildQuery(candidate));
+      buckets = parseTimeseriesBuckets(result);
+      if (buckets.length > 0) return buckets;
+    }
+  }
+
+  return [];
 }
 
 /** GET /api/anomalies - simple rule-based anomalies from metrics. */
@@ -335,6 +406,48 @@ export async function getAnomalies(
   }
 
   return anomalies;
+}
+
+/** Get one sample document from metrics-* to discover actual field structure. Prefer docs from our app (ecolab-iot-demo). */
+export async function getMetricsSample(
+  from: string = "now-24h",
+  to: string = "now"
+): Promise<{ sample: Record<string, unknown> | null; index: string }> {
+  const index = await discoverMetricsIndices();
+  const baseQuery = { range: { "@timestamp": { gte: from, lte: to } } };
+  // Prefer sample from our app (scope/meter name or resource.service.name)
+  const ourAppQuery = {
+    bool: {
+      must: [baseQuery],
+      should: [
+        { term: { "resource.attributes.service.name": "ecolab-iot-demo" } },
+        { term: { "service.name": "ecolab-iot-demo" } },
+        { term: { "scope.name": "ecolab-iot-demo" } },
+      ],
+      minimum_should_match: 0,
+    },
+  };
+  let result = await search(index, {
+    size: 1,
+    query: ourAppQuery,
+    sort: [{ "@timestamp": "desc" }],
+    _source: true,
+  });
+  if (!result.ok) return { sample: null, index };
+  let data = result.data as { hits?: { hits?: { _source?: Record<string, unknown> }[] } };
+  let hit = data.hits?.hits?.[0];
+  if (!hit?._source) {
+    result = await search(index, {
+      size: 1,
+      query: { bool: { must: [baseQuery] } },
+      sort: [{ "@timestamp": "desc" }],
+      _source: true,
+    });
+    if (!result.ok) return { sample: null, index };
+    data = result.data as { hits?: { hits?: { _source?: Record<string, unknown> }[] } };
+    hit = data.hits?.hits?.[0];
+  }
+  return { sample: hit?._source ?? null, index };
 }
 
 /** Count raw documents in metrics-* in time range (no dimension filter). Use to confirm data landed. */

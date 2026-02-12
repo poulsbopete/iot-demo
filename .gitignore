@@ -41,6 +41,10 @@ Thumbs.db
 coverage/
 .nyc_output/
 
+# Workflows (may contain hardcoded API keys – do not commit)
+workflows/*.yaml
+workflows/*.yml
+
 # Misc
 *.tsbuildinfo
 next-env.d.ts

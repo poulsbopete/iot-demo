@@ -44,6 +44,7 @@ export function MetricChart({
   const [data, setData] = useState<TimeSeriesBucket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,9 +54,9 @@ export function MetricChart({
       try {
         const params = new URLSearchParams({
           metric,
-          from: "now-30m",
+          from: "now-1h",
           to: "now",
-          interval: "1m",
+          interval: "2m",
         });
         if (site) params.set("site", site);
         const res = await fetch(`/api/metrics/timeseries?${params}`);
@@ -71,7 +72,7 @@ export function MetricChart({
       }
     }
     fetchData();
-  }, [metric, site]);
+  }, [metric, site, refreshKey]);
 
   if (loading) {
     return (
@@ -97,8 +98,15 @@ export function MetricChart({
       <h4 className="text-sm font-medium text-ecolab-navy mb-2">{displayTitle}</h4>
       {isEmpty ? (
         <div className="flex flex-col items-center justify-center min-h-[220px] text-center px-4">
-          <p className="text-ecolab-gray text-sm">No data in the last 30 minutes.</p>
-          <p className="text-ecolab-gray text-xs mt-1">Use &quot;Step (send metrics)&quot; or &quot;Auto-run&quot; to send OTLP metrics, then refresh.</p>
+          <p className="text-ecolab-gray text-sm">No data in the last hour.</p>
+          <p className="text-ecolab-gray text-xs mt-1">Use &quot;Step (send metrics)&quot; or &quot;Auto-run&quot; to send OTLP metrics. Data may take a minute to appear in Elastic.</p>
+          <button
+            type="button"
+            onClick={() => setRefreshKey((k) => k + 1)}
+            className="mt-3 rounded-md px-3 py-1.5 text-sm font-medium bg-ecolab-blue text-white hover:bg-ecolab-blue-dark"
+          >
+            Refresh
+          </button>
         </div>
       ) : (
       <ResponsiveContainer width="100%" height={220}>

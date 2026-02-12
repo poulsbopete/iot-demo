@@ -50,6 +50,33 @@ export function DemoControl({
 
   return (
     <div className="rounded-lg border border-ecolab-gray-light bg-white p-4 shadow-sm">
+      {/* Ecolab IoT animation: conveys testing an IoT endpoint */}
+      <div className="mb-3 pb-3 border-b border-ecolab-gray-light">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5" aria-hidden>
+            <span className="w-1.5 h-1.5 rounded-full bg-ecolab-blue animate-iot-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-ecolab-blue animate-iot-pulse animate-iot-pulse-delay-1" />
+            <span className="w-1.5 h-1.5 rounded-full bg-ecolab-green animate-iot-pulse animate-iot-pulse-delay-2" />
+            <span className="w-1.5 h-1.5 rounded-full bg-ecolab-blue animate-iot-pulse animate-iot-pulse-delay-3" />
+            <span className="w-1.5 h-1.5 rounded-full bg-ecolab-green animate-iot-pulse animate-iot-pulse-delay-4" />
+          </div>
+          <span className="text-xs font-medium text-ecolab-navy">Ecolab IoT</span>
+          <svg
+            className="w-4 h-4 text-ecolab-blue flex-shrink-0 ml-auto"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M12 2v4m0 12v4M2 12h4m12 0h4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83M19.07 4.93l-2.83 2.83m-8.48 8.48l-2.83 2.83" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </div>
+        <p className="text-[10px] text-ecolab-gray mt-1 ml-7">Testing IoT endpoint</p>
+      </div>
       <h3 className="text-sm font-semibold text-ecolab-navy mb-3">Demo Control</h3>
       <div className="flex flex-wrap gap-2">
         <button

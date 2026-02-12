@@ -17,6 +17,9 @@ interface DataCheck {
   message: string;
   from: string;
   to: string;
+  fieldNames?: string[];
+  queryHost?: string;
+  otlpHost?: string;
 }
 
 export default function Home() {
@@ -74,9 +77,19 @@ export default function Home() {
     let cancelled = false;
     async function check() {
       try {
-        const res = await fetch("/api/debug/data-check?from=now-1h&to=now");
+        const res = await fetch("/api/debug/data-check?from=now-1h&to=now&sample=1");
         const data = await res.json();
-        if (!cancelled && !data.error) setDataCheck({ count: data.count ?? 0, message: data.message ?? "", from: data.from ?? "", to: data.to ?? "" });
+        if (!cancelled && !data.error) {
+          setDataCheck({
+            count: data.count ?? 0,
+            message: data.message ?? "",
+            from: data.from ?? "",
+            to: data.to ?? "",
+            fieldNames: data.fieldNames,
+            queryHost: data.queryHost,
+            otlpHost: data.otlpHost,
+          });
+        }
       } catch {
         if (!cancelled) setDataCheck(null);
       }
@@ -121,14 +134,29 @@ export default function Home() {
             <p className="text-xs text-ecolab-gray">{lastStepResult}</p>
           )}
           {dataCheck !== null && (
-            <p className="text-xs text-ecolab-gray">
-              <span className="font-medium">Data in Elastic:</span>{" "}
-              {dataCheck.count > 0 ? (
-                <span className="text-ecolab-green-dark">{dataCheck.count} docs (last 1h)</span>
-              ) : (
-                <span>No docs in last 1h</span>
+            <div className="text-xs text-ecolab-gray space-y-1">
+              <p>
+                <span className="font-medium">Data in Elastic:</span>{" "}
+                {dataCheck.count > 0 ? (
+                  <span className="text-ecolab-green-dark">{dataCheck.count} docs (last 1h)</span>
+                ) : (
+                  <span>
+                    No docs in last 1h. Query: <code className="bg-gray-100 px-0.5 rounded">{dataCheck.queryHost ?? "—"}</code>
+                    {" · "}
+                    OTLP: <code className="bg-gray-100 px-0.5 rounded">{dataCheck.otlpHost ?? "—"}</code>
+                    {" — use the same deployment for both (ingest URL for OTLP, .es. for query)."}
+                  </span>
+                )}
+              </p>
+              {dataCheck.count > 0 && dataCheck.fieldNames && dataCheck.fieldNames.length > 0 && (
+                <details className="mt-1">
+                  <summary className="cursor-pointer hover:text-ecolab-navy">Sample doc fields</summary>
+                  <pre className="mt-1 p-2 bg-gray-100 rounded text-[10px] overflow-auto max-h-24">
+                    {dataCheck.fieldNames.join(", ")}
+                  </pre>
+                </details>
               )}
-            </p>
+            </div>
           )}
         </aside>
 

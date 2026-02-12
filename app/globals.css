@@ -12,3 +12,18 @@
 body {
   @apply bg-gray-50 text-gray-900 antialiased;
 }
+
+/* Ecolab IoT demo: sensor pulse animation */
+@keyframes iot-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+.animate-iot-pulse {
+  animation: iot-pulse 1.2s ease-in-out infinite;
+}
+
+.animate-iot-pulse-delay-1 { animation-delay: 0.2s; }
+.animate-iot-pulse-delay-2 { animation-delay: 0.4s; }
+.animate-iot-pulse-delay-3 { animation-delay: 0.6s; }
+.animate-iot-pulse-delay-4 { animation-delay: 0.8s; }

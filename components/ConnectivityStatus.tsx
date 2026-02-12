@@ -35,23 +35,23 @@ export function ConnectivityStatus() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-slate-400">
-        <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+      <div className="flex items-center gap-2 text-sm text-white/80">
+        <span className="h-2 w-2 rounded-full bg-white/60 animate-pulse" />
         Checking connectivity…
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-4 text-sm">
+    <div className="flex items-center gap-4 text-sm text-white">
       <div className="flex items-center gap-2">
         <span
           className={cn(
             "h-2 w-2 rounded-full",
-            status?.elastic.ok ? "bg-emerald-500" : "bg-red-500"
+            status?.elastic.ok ? "bg-ecolab-green" : "bg-red-300"
           )}
         />
-        <span className={status?.elastic.ok ? "text-slate-300" : "text-red-400"}>
+        <span className={status?.elastic.ok ? "text-white" : "text-red-100"}>
           Elastic {status?.elastic.ok ? "OK" : status?.elastic.error ?? "Error"}
         </span>
       </div>
@@ -59,10 +59,10 @@ export function ConnectivityStatus() {
         <span
           className={cn(
             "h-2 w-2 rounded-full",
-            status?.otlp.ok ? "bg-emerald-500" : "bg-amber-500"
+            status?.otlp.ok ? "bg-ecolab-green" : "bg-amber-200"
           )}
         />
-        <span className={status?.otlp.ok ? "text-slate-300" : "text-amber-400"}>
+        <span className={status?.otlp.ok ? "text-white" : "text-amber-100"}>
           OTLP {status?.otlp.ok ? "OK" : status?.otlp.error ?? "Not configured"}
         </span>
       </div>

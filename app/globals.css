@@ -3,11 +3,12 @@
 @tailwind utilities;
 
 :root {
+  --ecolab-blue: #0098cc;
   --ecolab-green: #00a651;
-  --ecolab-dark: #1a2e24;
-  --ecolab-accent: #00c896;
+  --ecolab-navy: #003d5c;
+  --ecolab-gray: #5c6b73;
 }
 
 body {
-  @apply bg-slate-950 text-slate-100 antialiased;
+  @apply bg-gray-50 text-gray-900 antialiased;
 }

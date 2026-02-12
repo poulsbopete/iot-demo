@@ -43,7 +43,7 @@ export function AlertBanners() {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-2 text-sm text-slate-400">
+      <div className="rounded-lg border border-ecolab-gray-light bg-white px-4 py-2 text-sm text-ecolab-gray shadow-sm">
         Loading alerts…
       </div>
     );
@@ -51,7 +51,7 @@ export function AlertBanners() {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-amber-700 bg-amber-900/20 px-4 py-2 text-sm text-amber-300">
+      <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 shadow-sm">
         Alerts unavailable: {error}
       </div>
     );
@@ -59,7 +59,7 @@ export function AlertBanners() {
 
   if (anomalies.length === 0) {
     return (
-      <div className="rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-2 text-sm text-slate-400">
+      <div className="rounded-lg border border-ecolab-gray-light bg-white px-4 py-2 text-sm text-ecolab-gray shadow-sm">
         No anomalies in the last 30 minutes.
       </div>
     );
@@ -71,10 +71,10 @@ export function AlertBanners() {
         <div
           key={`${a.time}-${a.device}-${i}`}
           className={cn(
-            "rounded-lg border px-4 py-2 text-sm",
-            a.severity === "high" && "border-red-700 bg-red-900/20 text-red-200",
-            a.severity === "medium" && "border-amber-700 bg-amber-900/20 text-amber-200",
-            a.severity === "low" && "border-slate-600 bg-slate-800/50 text-slate-300"
+            "rounded-lg border px-4 py-2 text-sm shadow-sm",
+            a.severity === "high" && "border-red-300 bg-red-50 text-red-800",
+            a.severity === "medium" && "border-amber-300 bg-amber-50 text-amber-800",
+            a.severity === "low" && "border-gray-300 bg-gray-50 text-ecolab-gray"
           )}
         >
           <span className="font-medium">{a.type}</span> — {a.site} / {a.device}: {a.description}

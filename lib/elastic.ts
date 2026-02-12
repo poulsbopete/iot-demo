@@ -1,6 +1,6 @@
 /**
  * Elastic Serverless client: REST API queries and index discovery.
- * Uses ES|QL where feasible; falls back to _search aggregations.
+ * Supports both OTLP TSDS schema (metrics.*, attributes.*) and legacy (metric.name, metric.value, labels.*).
  */
 
 import type { TimeSeriesBucket, MetricsSummary, AnomalyRecord } from "./types";
@@ -19,6 +19,17 @@ function getBaseUrl(): string {
   const base = ELASTIC_ENDPOINT.replace(/\/+$/, "");
   return base;
 }
+
+/** OTLP TSDS: metric name → Elastic field (e.g. chemical.dosing_rate_lpm → metrics.chemical.dosing_rate_lpm). */
+function metricToField(metricName: string): string {
+  return `metrics.${metricName}`;
+}
+
+/** Dimension field for site/device (OTLP uses attributes.* or resource.attributes.*). */
+const SITE_FIELD = "attributes.site.name";
+const SITE_FIELD_LEGACY = "labels.site.name";
+const DEVICE_FIELD = "attributes.device.id";
+const DEVICE_FIELD_LEGACY = "labels.device.id";
 
 /** Discover metrics data stream pattern (e.g. metrics-*). */
 export async function discoverMetricsIndices(): Promise<string> {
@@ -44,58 +55,69 @@ export async function discoverMetricsIndices(): Promise<string> {
   return "metrics-*";
 }
 
+/** Run search and return parsed JSON; on 400/404 return null so callers can return empty data. */
+async function search(
+  index: string,
+  body: Record<string, unknown>
+): Promise<{ ok: true; data: unknown } | { ok: false; status: number; body: string }> {
+  const res = await fetch(`${getBaseUrl()}/${index}/_search`, {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) return { ok: false, status: res.status, body: text };
+  try {
+    return { ok: true, data: JSON.parse(text) };
+  } catch {
+    return { ok: false, status: res.status, body: text };
+  }
+}
+
 /** GET /api/metrics/summary - high-level summary. */
 export async function getMetricsSummary(
   from: string,
   to: string
 ): Promise<MetricsSummary> {
   const index = await discoverMetricsIndices();
-  const query = {
-    size: 0,
-    query: {
-      range: {
-        "@timestamp": { gte: from, lte: to },
-      },
-    },
-    aggs: {
-      by_site: {
-        terms: { field: "labels.site.name", size: 20 },
-        aggs: {
-          doc_count: { value_count: { field: "@timestamp" } },
+  const empty: MetricsSummary = { from, to, sites: {}, totalMetrics: 0 };
+
+  // Try OTLP TSDS dimension first (attributes.site.name), then legacy (labels.site.name)
+  for (const siteField of [SITE_FIELD, SITE_FIELD_LEGACY]) {
+    const query = {
+      size: 0,
+      query: { range: { "@timestamp": { gte: from, lte: to } } },
+      aggs: {
+        by_site: {
+          terms: { field: siteField, size: 20 },
+          aggs: { doc_count: { value_count: { field: "@timestamp" } } },
         },
       },
-    },
-  };
-
-  const res = await fetch(`${getBaseUrl()}/${index}/_search`, {
-    method: "POST",
-    headers: getHeaders(),
-    body: JSON.stringify(query),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Elasticsearch error: ${res.status} ${err}`);
-  }
-
-  const data = (await res.json()) as {
-    aggregations?: {
-      by_site?: { buckets?: { key: string; doc_count: number }[] };
     };
-  };
-  const buckets = data.aggregations?.by_site?.buckets ?? [];
-  const sites: Record<string, { deviceCount: number; metricCount: number }> = {};
-  let totalMetrics = 0;
-  for (const b of buckets) {
-    const key = String(b.key);
-    sites[key] = { deviceCount: 1, metricCount: b.doc_count };
-    totalMetrics += b.doc_count;
+    const result = await search(index, query);
+    if (!result.ok) {
+      if (result.status === 400 || result.status === 404) continue;
+      throw new Error(`Elasticsearch error: ${result.status} ${result.body}`);
+    }
+    const data = result.data as {
+      aggregations?: { by_site?: { buckets?: { key: string; doc_count: number }[] } };
+    };
+    const buckets = data.aggregations?.by_site?.buckets ?? [];
+    if (buckets.length > 0) {
+      const sites: Record<string, { deviceCount: number; metricCount: number }> = {};
+      let totalMetrics = 0;
+      for (const b of buckets) {
+        const key = String(b.key);
+        sites[key] = { deviceCount: 1, metricCount: b.doc_count };
+        totalMetrics += b.doc_count;
+      }
+      return { from, to, sites, totalMetrics };
+    }
   }
-
-  return { from, to, sites, totalMetrics };
+  return empty;
 }
 
-/** GET /api/metrics/timeseries - chart data. */
+/** GET /api/metrics/timeseries - chart data. Tries OTLP TSDS (metrics.*) then legacy (metric.name/value). */
 export async function getTimeseries(
   metric: string,
   site: string | null,
@@ -104,17 +126,28 @@ export async function getTimeseries(
   interval: string = "1m"
 ): Promise<TimeSeriesBucket[]> {
   const index = await discoverMetricsIndices();
-  const must: Record<string, unknown>[] = [
+  const valueFieldTsds = metricToField(metric);
+
+  // Try OTLP TSDS: aggregate the metric field directly (e.g. metrics.chemical.dosing_rate_lpm)
+  const mustTsds: Record<string, unknown>[] = [
     { range: { "@timestamp": { gte: from, lte: to } } },
-    { term: { "metric.name": metric } },
+    { exists: { field: valueFieldTsds } },
   ];
   if (site) {
-    must.push({ term: { "labels.site.name": site } });
+    // OTLP may store dimensions in attributes.* or resource.attributes.*
+    mustTsds.push({
+      bool: {
+        should: [
+          { term: { [SITE_FIELD]: site } },
+          { term: { "resource.attributes.site.name": site } },
+        ],
+        minimum_should_match: 1,
+      },
+    });
   }
-
-  const query = {
+  const queryTsds = {
     size: 0,
-    query: { bool: { must } },
+    query: { bool: { must: mustTsds } },
     aggs: {
       over_time: {
         date_histogram: {
@@ -123,32 +156,60 @@ export async function getTimeseries(
           min_doc_count: 1,
         },
         aggs: {
-          value: { avg: { field: "metric.value" } },
+          value: { avg: { field: valueFieldTsds } },
         },
       },
     },
   };
 
-  const res = await fetch(`${getBaseUrl()}/${index}/_search`, {
-    method: "POST",
-    headers: getHeaders(),
-    body: JSON.stringify(query),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Elasticsearch error: ${res.status} ${err}`);
-  }
-
-  const data = (await res.json()) as {
-    aggregations?: {
-      over_time?: {
-        buckets?: { key_as_string: string; value: { value: number } }[];
+  const resultTsds = await search(index, queryTsds);
+  if (resultTsds.ok) {
+    const data = resultTsds.data as {
+      aggregations?: {
+        over_time?: { buckets?: { key_as_string: string; value: { value: number } }[] };
       };
     };
+    const buckets = data.aggregations?.over_time?.buckets ?? [];
+    if (buckets.length > 0) {
+      return buckets.map((b) => ({
+        time: b.key_as_string,
+        value: b.value?.value ?? 0,
+      }));
+    }
+  }
+
+  // Fallback: legacy schema (metric.name + metric.value)
+  const mustLegacy: Record<string, unknown>[] = [
+    { range: { "@timestamp": { gte: from, lte: to } } },
+    { term: { "metric.name": metric } },
+  ];
+  if (site) mustLegacy.push({ term: { [SITE_FIELD_LEGACY]: site } });
+  const queryLegacy = {
+    size: 0,
+    query: { bool: { must: mustLegacy } },
+    aggs: {
+      over_time: {
+        date_histogram: {
+          field: "@timestamp",
+          fixed_interval: interval,
+          min_doc_count: 1,
+        },
+        aggs: { value: { avg: { field: "metric.value" } } },
+      },
+    },
   };
-  const buckets = data.aggregations?.over_time?.buckets ?? [];
-  return buckets.map((b) => ({
+  const resultLegacy = await search(index, queryLegacy);
+  if (!resultLegacy.ok) {
+    if (resultLegacy.status === 400 || resultLegacy.status === 404) return [];
+    throw new Error(`Elasticsearch error: ${resultLegacy.status} ${resultLegacy.body}`);
+  }
+  const dataLegacy = resultLegacy.data as {
+    aggregations?: {
+      over_time?: { buckets?: { key_as_string: string; value: { value: number } }[] };
+    };
+  };
+  const bucketsLegacy = dataLegacy.aggregations?.over_time?.buckets ?? [];
+  return bucketsLegacy.map((b) => ({
     time: b.key_as_string,
     value: b.value?.value ?? 0,
   }));
@@ -276,14 +337,37 @@ export async function getAnomalies(
   return anomalies;
 }
 
-/** Check Elastic connectivity. */
+/** Count raw documents in metrics-* in time range (no dimension filter). Use to confirm data landed. */
+export async function getMetricsDocCount(
+  from: string = "now-1h",
+  to: string = "now"
+): Promise<{ count: number; index: string; from: string; to: string }> {
+  const index = await discoverMetricsIndices();
+  const result = await search(index, {
+    size: 0,
+    query: { range: { "@timestamp": { gte: from, lte: to } } },
+    track_total_hits: true,
+  });
+  if (!result.ok) {
+    return { count: 0, index, from, to };
+  }
+  const data = result.data as { hits?: { total?: { value?: number }; total?: number } };
+  const total = data.hits?.total;
+  const count =
+    typeof total === "number" ? total : (total as { value?: number })?.value ?? 0;
+  return { count, index, from, to };
+}
+
+/** Check Elastic connectivity. Uses a minimal search (/_cluster/health is not available in Serverless). */
 export async function checkElasticConnection(): Promise<{ ok: boolean; error?: string }> {
   if (!ELASTIC_ENDPOINT || !ELASTIC_API_KEY) {
     return { ok: false, error: "Missing ELASTIC_ENDPOINT or ELASTIC_API_KEY" };
   }
   try {
-    const res = await fetch(`${getBaseUrl()}/_cluster/health`, {
+    const res = await fetch(`${getBaseUrl()}/metrics-*/_search`, {
+      method: "POST",
       headers: getHeaders(),
+      body: JSON.stringify({ size: 0 }),
     });
     if (!res.ok) {
       const text = await res.text();

@@ -52,10 +52,10 @@ export function CopilotPanel() {
   }
 
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-4 flex flex-col h-full min-h-[320px]">
-      <h3 className="text-sm font-semibold text-slate-200 mb-3">AI Ops Copilot</h3>
+    <div className="rounded-lg border border-ecolab-gray-light bg-white p-4 flex flex-col h-full min-h-[320px] shadow-sm">
+      <h3 className="text-sm font-semibold text-ecolab-navy mb-3">AI Ops Copilot</h3>
       <div className="space-y-2 flex-1 flex flex-col min-h-0">
-        <p className="text-xs text-slate-400">Canned questions:</p>
+        <p className="text-xs text-ecolab-gray">Canned questions:</p>
         <div className="flex flex-col gap-1.5">
           {CANNED_QUESTIONS.map((c) => (
             <button
@@ -67,7 +67,7 @@ export function CopilotPanel() {
               disabled={loading}
               className={cn(
                 "text-left text-xs rounded-md px-3 py-2 border transition-colors",
-                "border-slate-600 bg-slate-800/50 text-slate-300 hover:bg-slate-700 hover:border-slate-500 disabled:opacity-50"
+                "border-gray-300 bg-gray-50 text-ecolab-navy hover:bg-ecolab-blue/5 hover:border-ecolab-blue/30 disabled:opacity-50"
               )}
             >
               {c.label}
@@ -75,7 +75,7 @@ export function CopilotPanel() {
           ))}
         </div>
         <div className="pt-2">
-          <label className="text-xs text-slate-400 block mb-1">Freeform (demo: use canned for tool calls)</label>
+          <label className="text-xs text-ecolab-gray block mb-1">Freeform (demo: use canned for tool calls)</label>
           <div className="flex gap-2">
             <input
               type="text"
@@ -83,22 +83,22 @@ export function CopilotPanel() {
               onChange={(e) => setFreeform(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && ask(undefined, freeform)}
               placeholder="Type and press Enter…"
-              className="flex-1 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm px-3 py-1.5 placeholder-slate-500"
+              className="flex-1 rounded border border-gray-300 bg-white text-gray-900 text-sm px-3 py-1.5 placeholder-gray-400"
             />
             <button
               onClick={() => ask(undefined, freeform)}
               disabled={loading}
-              className="rounded-md px-3 py-1.5 text-sm font-medium bg-ecolab-green text-white hover:bg-ecolab-accent disabled:opacity-50"
+              className="rounded-md px-3 py-1.5 text-sm font-medium bg-ecolab-green text-white hover:bg-ecolab-green-dark disabled:opacity-50"
             >
               Ask
             </button>
           </div>
         </div>
-        <div className="mt-2 flex-1 min-h-0 overflow-auto rounded border border-slate-700 bg-slate-950/50 p-3">
-          {loading && <p className="text-slate-400 text-sm">Querying tools and summarizing…</p>}
-          {error && <p className="text-amber-400 text-sm">{error}</p>}
+        <div className="mt-2 flex-1 min-h-0 overflow-auto rounded border border-ecolab-gray-light bg-gray-50 p-3">
+          {loading && <p className="text-ecolab-gray text-sm">Querying tools and summarizing…</p>}
+          {error && <p className="text-amber-700 text-sm">{error}</p>}
           {summary && !loading && (
-            <pre className="text-xs text-slate-300 whitespace-pre-wrap font-sans">{summary}</pre>
+            <pre className="text-xs text-ecolab-gray whitespace-pre-wrap font-sans">{summary}</pre>
           )}
         </div>
       </div>

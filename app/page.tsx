@@ -12,11 +12,19 @@ const DEMO_INTERVAL_MS =
     ? Number(process.env.NEXT_PUBLIC_DEMO_INTERVAL_MS) || 5000
     : 5000;
 
+interface DataCheck {
+  count: number;
+  message: string;
+  from: string;
+  to: string;
+}
+
 export default function Home() {
   const [metric, setMetric] = useState("chemical.dosing_rate_lpm");
   const [site, setSite] = useState<string | null>(null);
   const [autoRunning, setAutoRunning] = useState(false);
   const [lastStepResult, setLastStepResult] = useState<string | null>(null);
+  const [dataCheck, setDataCheck] = useState<DataCheck | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const runStep = useCallback(async (injectAnomaly?: string) => {
@@ -62,9 +70,28 @@ export default function Home() {
     };
   }, [autoRunning, runStep]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      try {
+        const res = await fetch("/api/debug/data-check?from=now-1h&to=now");
+        const data = await res.json();
+        if (!cancelled && !data.error) setDataCheck({ count: data.count ?? 0, message: data.message ?? "", from: data.from ?? "", to: data.to ?? "" });
+      } catch {
+        if (!cancelled) setDataCheck(null);
+      }
+    }
+    check();
+    const t = setInterval(check, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="border-b border-slate-800 bg-slate-900/80 px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-ecolab-blue/20 bg-ecolab-blue px-6 py-4 flex items-center justify-between shadow-sm">
         <h1 className="text-xl font-bold text-white tracking-tight">
           Ecolab IoT Command Center
         </h1>
@@ -74,8 +101,8 @@ export default function Home() {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 p-6">
         {/* Left: site/device selector + demo control */}
         <aside className="lg:col-span-3 space-y-4">
-          <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-4">
-            <h3 className="text-sm font-semibold text-slate-200 mb-3">Sites & Metrics</h3>
+          <div className="rounded-lg border border-ecolab-gray-light bg-white p-4 shadow-sm">
+            <h3 className="text-sm font-semibold text-ecolab-navy mb-3">Sites & Metrics</h3>
             <MetricChartSelector
               selectedMetric={metric}
               selectedSite={site}
@@ -91,18 +118,28 @@ export default function Home() {
             onAutoRunToggle={() => setAutoRunning((v) => !v)}
           />
           {lastStepResult && (
-            <p className="text-xs text-slate-400">{lastStepResult}</p>
+            <p className="text-xs text-ecolab-gray">{lastStepResult}</p>
+          )}
+          {dataCheck !== null && (
+            <p className="text-xs text-ecolab-gray">
+              <span className="font-medium">Data in Elastic:</span>{" "}
+              {dataCheck.count > 0 ? (
+                <span className="text-ecolab-green-dark">{dataCheck.count} docs (last 1h)</span>
+              ) : (
+                <span>No docs in last 1h</span>
+              )}
+            </p>
           )}
         </aside>
 
         {/* Center: charts + alerts */}
         <main className="lg:col-span-6 space-y-4">
           <section>
-            <h2 className="text-sm font-semibold text-slate-300 mb-2">Alert Banners</h2>
+            <h2 className="text-sm font-semibold text-ecolab-navy mb-2">Alert Banners</h2>
             <AlertBanners />
           </section>
           <section>
-            <h2 className="text-sm font-semibold text-slate-300 mb-2">Live Time-Series</h2>
+            <h2 className="text-sm font-semibold text-ecolab-navy mb-2">Live Time-Series</h2>
             <div className="space-y-4">
               <MetricChart metric={metric} site={site} />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

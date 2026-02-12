@@ -49,15 +49,15 @@ export function DemoControl({
   }
 
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-4">
-      <h3 className="text-sm font-semibold text-slate-200 mb-3">Demo Control</h3>
+    <div className="rounded-lg border border-ecolab-gray-light bg-white p-4 shadow-sm">
+      <h3 className="text-sm font-semibold text-ecolab-navy mb-3">Demo Control</h3>
       <div className="flex flex-wrap gap-2">
         <button
           onClick={handleStep}
           disabled={disabled || loading !== null}
           className={cn(
             "rounded-md px-3 py-1.5 text-sm font-medium",
-            "bg-ecolab-green hover:bg-ecolab-accent text-white disabled:opacity-50"
+            "bg-ecolab-blue hover:bg-ecolab-blue-dark text-white disabled:opacity-50"
           )}
         >
           {loading === "step" ? "Sending…" : "Step (send metrics)"}
@@ -68,8 +68,8 @@ export function DemoControl({
           className={cn(
             "rounded-md px-3 py-1.5 text-sm font-medium border",
             autoRunning
-              ? "border-amber-500 bg-amber-500/20 text-amber-400"
-              : "border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700"
+              ? "border-ecolab-green bg-ecolab-green/10 text-ecolab-green-dark"
+              : "border-gray-300 bg-gray-50 text-ecolab-gray hover:bg-gray-100"
           )}
         >
           {autoRunning ? "Stop auto-run" : "Auto-run (polling)"}
@@ -79,18 +79,18 @@ export function DemoControl({
           disabled={disabled || loading !== null}
           className={cn(
             "rounded-md px-3 py-1.5 text-sm font-medium",
-            "bg-slate-700 text-slate-200 hover:bg-slate-600 disabled:opacity-50"
+            "bg-ecolab-gray text-white hover:bg-ecolab-navy disabled:opacity-50"
           )}
         >
           {loading === "burst" ? "Sending…" : "Burst 60s"}
         </button>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <label className="text-xs text-slate-400">Inject anomaly:</label>
+        <label className="text-xs text-ecolab-gray">Inject anomaly:</label>
         <select
           value={anomaly}
           onChange={(e) => setAnomaly(e.target.value as AnomalyOption)}
-          className="rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1"
+          className="rounded border border-gray-300 bg-white text-gray-900 text-xs px-2 py-1"
         >
           <option value="none">None</option>
           <option value="underdosing">Underdosing</option>
@@ -102,7 +102,7 @@ export function DemoControl({
         <button
           onClick={handleInject}
           disabled={disabled || anomaly === "none"}
-          className="rounded-md px-2 py-1 text-xs font-medium bg-red-900/50 text-red-300 hover:bg-red-900/70 disabled:opacity-50"
+          className="rounded-md px-2 py-1 text-xs font-medium bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 disabled:opacity-50"
         >
           Inject
         </button>

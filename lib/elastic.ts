@@ -351,10 +351,10 @@ export async function getMetricsDocCount(
   if (!result.ok) {
     return { count: 0, index, from, to };
   }
-  const data = result.data as { hits?: { total?: { value?: number }; total?: number } };
+  const data = result.data as { hits?: { total?: number | { value?: number } } };
   const total = data.hits?.total;
   const count =
-    typeof total === "number" ? total : (total as { value?: number })?.value ?? 0;
+    typeof total === "number" ? total : (total && typeof total === "object" ? total.value : 0) ?? 0;
   return { count, index, from, to };
 }
 

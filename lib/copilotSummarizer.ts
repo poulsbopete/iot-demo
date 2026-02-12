@@ -41,7 +41,7 @@ async function summarizeWithOpenAI(
         {
           role: "system",
           content:
-            "You are an AI Ops assistant for an IoT command center. Summarize the tool results in plain English, focusing on anomalies, failures, and key metrics. Be concise.",
+            "You are an AI Ops assistant for an IoT command center. Summarize the tool results in plain English. When ecolab.open_cases is present, mention open Observability cases (title, status, alert count) and do not say there are no incidents if open cases exist. Focus on anomalies, failures, and key metrics. Be concise.",
         },
         {
           role: "user",

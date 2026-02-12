@@ -6,8 +6,32 @@ import {
   callElasticAgentConverse,
   isElasticAgentBuilderMCP,
 } from "@/lib/mcpClient";
+import { getEcolabCases } from "@/lib/cases";
 import { summarizeToolResults } from "@/lib/copilotSummarizer";
 import type { MCPToolCall } from "@/lib/types";
+
+/** True if the question is about failures, alerts, or cases (so we inject open cases context). */
+function isFailureOrCaseQuestion(question: string): boolean {
+  const q = question.toLowerCase();
+  return (
+    /pump|failure|failures|failed|alert|alerts|case|cases|incident|outage|shutdown|error|issue/.test(q)
+  );
+}
+
+/** Fetch open Ecolab cases and format as context for the agent. */
+async function buildCasesContextForConverse(): Promise<string> {
+  const { cases, error } = await getEcolabCases(20);
+  if (error || !cases.length) return "";
+  const lines = cases
+    .filter((c) => c.status === "open" || c.status === "in-progress")
+    .slice(0, 10)
+    .map(
+      (c) =>
+        `- "${c.title}" (status: ${c.status}${c.totalAlerts ? `, ${c.totalAlerts} alert(s)` : ""}) — ${c.url}`
+    );
+  if (lines.length === 0) return "";
+  return `Context: The user has the following open or in-progress Observability cases. Use them when answering; do not say there are no incidents if these cases exist.\n${lines.join("\n")}\n\nUser question: `;
+}
 
 const CANNED_IDS = [
   "overdosing",
@@ -27,9 +51,9 @@ const CANNED_LABELS: Record<string, string> = {
 
 /**
  * POST body: { questionId?: string, question?: string, toolCalls?: MCPToolCall[] }
- * - When MCP_SERVER_URL points at Elastic Agent Builder (/api/agent_builder/mcp), use the
- *   Elastic Agent Converse API so the same agent as Agent Chat runs (reasoning + tools).
- * - Otherwise: canned question → tools, freeform → match to canned → tools, or explicit toolCalls.
+ * - When OPENAI_API_KEY is set: use internal Elastic tools + OpenAI to summarize (no Converse, no timeout).
+ * - Else when MCP points at Elastic Agent Builder: use Converse API (may timeout).
+ * - Otherwise: canned question → internal tools → rule-based summary.
  */
 export async function POST(request: Request) {
   try {
@@ -45,9 +69,20 @@ export async function POST(request: Request) {
         ? CANNED_LABELS[body.questionId]
         : "");
 
-    // Use Elastic Serverless Agent (Converse API) when MCP URL is the Elastic Agent Builder endpoint
-    if (questionForConverse && isElasticAgentBuilderMCP()) {
-      const { message, error } = await callElasticAgentConverse(questionForConverse);
+    // Prefer OpenAI + Elastic when OPENAI_API_KEY is set (avoids Converse timeouts)
+    const useOpenAIElastic = Boolean(process.env.OPENAI_API_KEY);
+    const useConverse =
+      questionForConverse &&
+      isElasticAgentBuilderMCP() &&
+      !useOpenAIElastic;
+
+    if (useConverse) {
+      let input = questionForConverse;
+      if (isFailureOrCaseQuestion(questionForConverse)) {
+        const prefix = await buildCasesContextForConverse();
+        if (prefix) input = prefix + questionForConverse;
+      }
+      const { message, error } = await callElasticAgentConverse(input);
       if (error) {
         return NextResponse.json({ ok: false, error }, { status: 500 });
       }
@@ -79,12 +114,34 @@ export async function POST(request: Request) {
     if (toolCalls.length === 0) {
       return NextResponse.json({
         ok: true,
-        summary: "No matching question. Try a canned question or ask something like: pump failures, sanitizer by site, status summary, or abnormal device.",
+        summary: "No matching question. Select one of the canned questions.",
         toolResults: [],
       });
     }
 
     const toolResults = await invokeTools(toolCalls);
+
+    // Inject open Ecolab cases for failure-related questions so the summary includes them
+    if (isFailureOrCaseQuestion(question)) {
+      const { cases } = await getEcolabCases(20);
+      const openCases = cases.filter((c) => c.status === "open" || c.status === "in-progress");
+      if (openCases.length > 0) {
+        toolResults.push({
+          tool: "ecolab.open_cases",
+          content: JSON.stringify(
+            openCases.slice(0, 10).map((c) => ({
+              title: c.title,
+              status: c.status,
+              totalAlerts: c.totalAlerts,
+              url: c.url,
+            })),
+            null,
+            2
+          ),
+        });
+      }
+    }
+
     const summary = await summarizeToolResults(question, toolResults);
 
     return NextResponse.json({

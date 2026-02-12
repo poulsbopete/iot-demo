@@ -28,7 +28,9 @@ export default function Home() {
   const [autoRunning, setAutoRunning] = useState(false);
   const [lastStepResult, setLastStepResult] = useState<string | null>(null);
   const [dataCheck, setDataCheck] = useState<DataCheck | null>(null);
+  const [hasRecentTraffic, setHasRecentTraffic] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const trafficTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runStep = useCallback(async (injectAnomaly?: string) => {
     try {
@@ -39,6 +41,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.ok) {
+        setHasRecentTraffic(true);
         setLastStepResult(`Sent ${data.metricCount} metrics${data.anomaliesInjected?.length ? ` (anomalies: ${data.anomaliesInjected.join(", ")})` : ""}`);
       } else {
         setLastStepResult(`Error: ${data.error ?? "Unknown"}`);
@@ -62,6 +65,7 @@ export default function Home() {
 
   useEffect(() => {
     if (autoRunning) {
+      setHasRecentTraffic(true);
       runStep();
       intervalRef.current = setInterval(() => runStep(), DEMO_INTERVAL_MS);
     }
@@ -72,6 +76,23 @@ export default function Home() {
       }
     };
   }, [autoRunning, runStep]);
+
+  // Turn off "recent traffic" 30s after last send when auto-run is stopped
+  useEffect(() => {
+    if (!autoRunning && hasRecentTraffic) {
+      trafficTimeoutRef.current = setTimeout(() => setHasRecentTraffic(false), 30000);
+    }
+    if (autoRunning && trafficTimeoutRef.current) {
+      clearTimeout(trafficTimeoutRef.current);
+      trafficTimeoutRef.current = null;
+    }
+    return () => {
+      if (trafficTimeoutRef.current) {
+        clearTimeout(trafficTimeoutRef.current);
+        trafficTimeoutRef.current = null;
+      }
+    };
+  }, [autoRunning, hasRecentTraffic]);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,6 +150,7 @@ export default function Home() {
             onInjectAnomaly={injectAnomaly}
             autoRunning={autoRunning}
             onAutoRunToggle={() => setAutoRunning((v) => !v)}
+            hasTraffic={autoRunning || hasRecentTraffic}
           />
           {lastStepResult && (
             <p className="text-xs text-ecolab-gray">{lastStepResult}</p>

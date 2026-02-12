@@ -12,6 +12,7 @@ export function DemoControl({
   autoRunning,
   onAutoRunToggle,
   disabled,
+  hasTraffic = false,
 }: {
   onStep: () => void;
   onBurst: () => void;
@@ -19,6 +20,8 @@ export function DemoControl({
   autoRunning: boolean;
   onAutoRunToggle: () => void;
   disabled?: boolean;
+  /** When true, the IoT dots animation runs (only when there is recent/active traffic). */
+  hasTraffic?: boolean;
 }) {
   const [anomaly, setAnomaly] = useState<AnomalyOption>("none");
   const [loading, setLoading] = useState<"step" | "burst" | null>(null);
@@ -54,11 +57,23 @@ export function DemoControl({
       <div className="mb-3 pb-3 border-b border-ecolab-gray-light">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5" aria-hidden>
-            <span className="w-1.5 h-1.5 rounded-full bg-ecolab-blue animate-iot-pulse" />
-            <span className="w-1.5 h-1.5 rounded-full bg-ecolab-blue animate-iot-pulse animate-iot-pulse-delay-1" />
-            <span className="w-1.5 h-1.5 rounded-full bg-ecolab-green animate-iot-pulse animate-iot-pulse-delay-2" />
-            <span className="w-1.5 h-1.5 rounded-full bg-ecolab-blue animate-iot-pulse animate-iot-pulse-delay-3" />
-            <span className="w-1.5 h-1.5 rounded-full bg-ecolab-green animate-iot-pulse animate-iot-pulse-delay-4" />
+            {[
+              { bg: "bg-ecolab-blue", delay: "" },
+              { bg: "bg-ecolab-blue", delay: "animate-iot-pulse-delay-1" },
+              { bg: "bg-ecolab-green", delay: "animate-iot-pulse-delay-2" },
+              { bg: "bg-ecolab-blue", delay: "animate-iot-pulse-delay-3" },
+              { bg: "bg-ecolab-green", delay: "animate-iot-pulse-delay-4" },
+            ].map(({ bg, delay }, i) => (
+              <span
+                key={i}
+                className={cn(
+                  "w-1.5 h-1.5 rounded-full",
+                  bg,
+                  hasTraffic ? "animate-iot-pulse" : "opacity-60",
+                  hasTraffic && delay
+                )}
+              />
+            ))}
           </div>
           <span className="text-xs font-medium text-ecolab-navy">Ecolab IoT</span>
           <svg

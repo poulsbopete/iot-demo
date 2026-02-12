@@ -15,19 +15,30 @@ function getKibanaBaseFromMCP(): string {
   return u.replace(/\/api\/agent_builder\/mcp\/?$/i, "") || u;
 }
 
+/** Default Converse API timeout (ms). Fail fast so the UI doesn't hang. */
+const CONVERSE_TIMEOUT_MS = 12_000;
+
 /**
  * Send the user's question to the Elastic Agent Builder Converse API (same agent as Agent Chat).
  * The agent runs reasoning and tools (e.g. platform.core.search, synthetics.alerts) and returns the reply.
+ * Uses a timeout so the call doesn't hang; pass timeoutMs to override.
  */
-export async function callElasticAgentConverse(question: string): Promise<{ message: string; error?: string }> {
+export async function callElasticAgentConverse(
+  question: string,
+  options?: { timeoutMs?: number }
+): Promise<{ message: string; error?: string }> {
   const base = getKibanaBaseFromMCP();
   const apiKey = process.env.ELASTIC_API_KEY ?? "";
   if (!base || !apiKey) {
     return { message: "", error: "MCP_SERVER_URL and ELASTIC_API_KEY are required for Elastic Agent Converse." };
   }
+  const timeoutMs = options?.timeoutMs ?? CONVERSE_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${base}/api/agent_builder/converse`, {
       method: "POST",
+      signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
         "kbn-xsrf": "true",
@@ -38,6 +49,7 @@ export async function callElasticAgentConverse(question: string): Promise<{ mess
         agent_id: ELASTIC_AGENT_ID,
       }),
     });
+    clearTimeout(timeoutId);
     const data = (await res.json()) as {
       response?: { message?: string };
       steps?: unknown[];
@@ -51,9 +63,13 @@ export async function callElasticAgentConverse(question: string): Promise<{ mess
     const message = data.response?.message ?? "";
     return { message: message || "No response from agent." };
   } catch (e) {
+    clearTimeout(timeoutId);
+    const isAbort = e instanceof Error && e.name === "AbortError";
     return {
       message: "",
-      error: e instanceof Error ? e.message : String(e),
+      error: isAbort
+        ? "Request timed out. Try a simpler question or try again."
+        : e instanceof Error ? e.message : String(e),
     };
   }
 }

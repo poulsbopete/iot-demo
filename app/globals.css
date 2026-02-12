@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ecolab-green: #00a651;
+  --ecolab-dark: #1a2e24;
+  --ecolab-accent: #00c896;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 antialiased;
+}

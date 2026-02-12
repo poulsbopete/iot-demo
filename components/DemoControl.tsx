@@ -1,0 +1,112 @@
+"use client";
+
+import { useState } from "react";
+import { cn } from "@/lib/cn";
+
+type AnomalyOption = "none" | "underdosing" | "pump_failure" | "tank_leak" | "thermal_high" | "thermal_low";
+
+export function DemoControl({
+  onStep,
+  onBurst,
+  onInjectAnomaly,
+  autoRunning,
+  onAutoRunToggle,
+  disabled,
+}: {
+  onStep: () => void;
+  onBurst: () => void;
+  onInjectAnomaly: (anomaly: string) => void;
+  autoRunning: boolean;
+  onAutoRunToggle: () => void;
+  disabled?: boolean;
+}) {
+  const [anomaly, setAnomaly] = useState<AnomalyOption>("none");
+  const [loading, setLoading] = useState<"step" | "burst" | null>(null);
+
+  async function handleStep() {
+    setLoading("step");
+    try {
+      await onStep();
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleBurst() {
+    setLoading("burst");
+    try {
+      await onBurst();
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  function handleInject() {
+    if (anomaly !== "none") {
+      onInjectAnomaly(anomaly);
+      setAnomaly("none");
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-4">
+      <h3 className="text-sm font-semibold text-slate-200 mb-3">Demo Control</h3>
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={handleStep}
+          disabled={disabled || loading !== null}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-sm font-medium",
+            "bg-ecolab-green hover:bg-ecolab-accent text-white disabled:opacity-50"
+          )}
+        >
+          {loading === "step" ? "Sending…" : "Step (send metrics)"}
+        </button>
+        <button
+          onClick={onAutoRunToggle}
+          disabled={disabled}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-sm font-medium border",
+            autoRunning
+              ? "border-amber-500 bg-amber-500/20 text-amber-400"
+              : "border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700"
+          )}
+        >
+          {autoRunning ? "Stop auto-run" : "Auto-run (polling)"}
+        </button>
+        <button
+          onClick={handleBurst}
+          disabled={disabled || loading !== null}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-sm font-medium",
+            "bg-slate-700 text-slate-200 hover:bg-slate-600 disabled:opacity-50"
+          )}
+        >
+          {loading === "burst" ? "Sending…" : "Burst 60s"}
+        </button>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <label className="text-xs text-slate-400">Inject anomaly:</label>
+        <select
+          value={anomaly}
+          onChange={(e) => setAnomaly(e.target.value as AnomalyOption)}
+          className="rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1"
+        >
+          <option value="none">None</option>
+          <option value="underdosing">Underdosing</option>
+          <option value="pump_failure">Pump failure</option>
+          <option value="tank_leak">Tank leak</option>
+          <option value="thermal_high">Thermal high</option>
+          <option value="thermal_low">Thermal low</option>
+        </select>
+        <button
+          onClick={handleInject}
+          disabled={disabled || anomaly === "none"}
+          className="rounded-md px-2 py-1 text-xs font-medium bg-red-900/50 text-red-300 hover:bg-red-900/70 disabled:opacity-50"
+        >
+          Inject
+        </button>
+      </div>
+    </div>
+  );
+}

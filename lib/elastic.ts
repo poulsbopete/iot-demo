@@ -286,6 +286,143 @@ export async function getTimeseries(
   return [];
 }
 
+/** Result of timeseries grouped by site (for "X by site" questions). */
+export interface TimeseriesBySiteRow {
+  site: string;
+  avg: number;
+  min?: number;
+  max?: number;
+  doc_count: number;
+}
+
+/** Get metric values aggregated by site over a time range. Uses OTLP TSDS then legacy schema. */
+export async function getTimeseriesBySite(
+  metric: string,
+  from: string,
+  to: string,
+  interval: string = "1m"
+): Promise<TimeseriesBySiteRow[]> {
+  const index = await discoverMetricsIndices();
+  const fieldDots = metricToField(metric);
+  const fieldUnderscore = metricToFieldUnderscore(metric);
+
+  const siteFields = [
+    "resource.attributes.site.name",
+    "attributes.site.name",
+    "labels.site.name",
+  ] as const;
+
+  const runTermsAgg = async (
+    valueField: string,
+    siteField: string
+  ): Promise<TimeseriesBySiteRow[]> => {
+    const result = await search(index, {
+      size: 0,
+      query: {
+        bool: {
+          must: [
+            { range: { "@timestamp": { gte: from, lte: to } } },
+            { exists: { field: valueField } },
+          ],
+        },
+      },
+      aggs: {
+        by_site: {
+          terms: { field: siteField, size: 20, missing: "unknown" },
+          aggs: {
+            avg_val: { avg: { field: valueField } },
+            min_val: { min: { field: valueField } },
+            max_val: { max: { field: valueField } },
+          },
+        },
+      },
+    });
+    if (!result.ok) return [];
+    const data = result.data as {
+      aggregations?: {
+        by_site?: {
+          buckets?: Array<{
+            key: string;
+            doc_count: number;
+            avg_val?: { value: number | null };
+            min_val?: { value: number | null };
+            max_val?: { value: number | null };
+          }>;
+        };
+      };
+    };
+    const buckets = data.aggregations?.by_site?.buckets ?? [];
+    return buckets.map((b) => ({
+      site: b.key,
+      avg: b.avg_val?.value ?? 0,
+      min: b.min_val?.value ?? undefined,
+      max: b.max_val?.value ?? undefined,
+      doc_count: b.doc_count,
+    }));
+  };
+
+  for (const siteField of siteFields) {
+    let rows = await runTermsAgg(fieldDots, siteField);
+    if (rows.length > 0) return rows;
+    rows = await runTermsAgg(fieldUnderscore, siteField);
+    if (rows.length > 0) return rows;
+  }
+
+  // Legacy: metric.name + metric.value
+  const resultLegacy = await search(index, {
+    size: 0,
+    query: {
+      bool: {
+        must: [
+          { range: { "@timestamp": { gte: from, lte: to } } },
+          { term: { "metric.name": metric } },
+        ],
+      },
+    },
+    aggs: {
+      by_site: {
+        terms: { field: SITE_FIELD_LEGACY, size: 20, missing: "unknown" },
+        aggs: {
+          avg_val: { avg: { field: "metric.value" } },
+          min_val: { min: { field: "metric.value" } },
+          max_val: { max: { field: "metric.value" } },
+        },
+      },
+    },
+  });
+  if (!resultLegacy.ok) return [];
+  const legData = resultLegacy.data as {
+    aggregations?: {
+      by_site?: {
+        buckets?: Array<{
+          key: string;
+          doc_count: number;
+          avg_val?: { value: number | null };
+          min_val?: { value: number | null };
+          max_val?: { value: number | null };
+        }>;
+      };
+    };
+  };
+  const legBuckets = legData.aggregations?.by_site?.buckets ?? [];
+  if (legBuckets.length > 0) {
+    return legBuckets.map((b) => ({
+      site: b.key,
+      avg: b.avg_val?.value ?? 0,
+      min: b.min_val?.value ?? undefined,
+      max: b.max_val?.value ?? undefined,
+      doc_count: b.doc_count,
+    }));
+  }
+
+  // Fallback: no site dimension found (e.g. field not aggregatable). Return overall avg as "all sites".
+  const flatBuckets = await getTimeseries(metric, null, from, to, interval);
+  if (flatBuckets.length === 0) return [];
+  const avg =
+    flatBuckets.reduce((s, b) => s + b.value, 0) / flatBuckets.length;
+  return [{ site: "all sites", avg, doc_count: flatBuckets.length }];
+}
+
 /** GET /api/anomalies - simple rule-based anomalies from metrics. */
 export async function getAnomalies(
   from: string,

@@ -41,7 +41,7 @@ async function summarizeWithOpenAI(
         {
           role: "system",
           content:
-            "You are an AI Ops assistant for an IoT command center. Summarize the tool results in plain English. When ecolab.open_cases is present, mention open Observability cases (title, status, alert count) and do not say there are no incidents if open cases exist. Focus on anomalies, failures, and key metrics. Be concise.",
+            "You are an AI Ops assistant for an IoT command center. Summarize the tool results in plain English. When ecolab.open_cases is present, mention open Observability cases (title, status, alert count) and do not say there are no incidents if open cases exist. When elastic.get_metrics_overview is present, mention whether metrics are being received (e.g. 'N metric documents in the last hour' or 'No recent metrics—start the demo to send data'). For a status summary: always state data flow and anomalies; say 'System operating normally' or 'No anomalies in the time range' when appropriate, not 'nothing to report' when metrics overview or other data exists. Be concise.",
         },
         {
           role: "user",
@@ -93,6 +93,35 @@ function summarizeRuleBased(question: string, toolResults: MCPToolResult[]): str
           const avg = arr.reduce((s, x) => s + x.value, 0) / arr.length;
           lines.push(`Timeseries: ${arr.length} points; latest value: ${last?.value ?? "N/A"}; avg: ${avg.toFixed(2)}`);
         } else lines.push("No timeseries data in range.");
+      } catch {
+        lines.push(raw.slice(0, 500));
+      }
+      continue;
+    }
+    if (r.tool === "elastic.get_metrics_overview") {
+      try {
+        const obj = JSON.parse(raw) as { count: number; index: string; from: string; to: string };
+        if (obj.count > 0) {
+          lines.push(`Metrics: ${obj.count} document(s) in the time range (index: ${obj.index ?? "metrics-*"}).`);
+        } else {
+          lines.push("No metric documents in the time range. Start the demo (Step or Auto-run) to send data.");
+        }
+      } catch {
+        lines.push(raw.slice(0, 500));
+      }
+      continue;
+    }
+    if (r.tool === "elastic.get_timeseries_by_site") {
+      try {
+        const arr = JSON.parse(raw) as Array<{ site: string; avg: number; doc_count?: number }>;
+        if (Array.isArray(arr) && arr.length > 0) {
+          lines.push(
+            "Sanitizer ppm by site (avg in time range): " +
+              arr.map((r) => `${r.site}: ${typeof r.avg === "number" ? r.avg.toFixed(1) : r.avg} ppm`).join("; ")
+          );
+        } else {
+          lines.push("No per-site sanitizer data in the time range. Check that metrics are being sent with site attributes.");
+        }
       } catch {
         lines.push(raw.slice(0, 500));
       }

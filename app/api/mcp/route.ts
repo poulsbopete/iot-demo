@@ -121,8 +121,9 @@ export async function POST(request: Request) {
 
     const toolResults = await invokeTools(toolCalls);
 
-    // Inject open Ecolab cases for failure-related questions so the summary includes them
-    if (isFailureOrCaseQuestion(question)) {
+    // Inject open Ecolab cases for failure-related questions and status summary
+    const isStatusSummary = body.questionId === "status_summary";
+    if (isStatusSummary || isFailureOrCaseQuestion(question)) {
       const { cases } = await getEcolabCases(20);
       const openCases = cases.filter((c) => c.status === "open" || c.status === "in-progress");
       if (openCases.length > 0) {

@@ -83,7 +83,9 @@ export const INTERNAL_TOOLS = [
   "elastic.esql_query",
   "elastic.search",
   "elastic.get_timeseries",
+  "elastic.get_timeseries_by_site",
   "elastic.detect_anomalies",
+  "elastic.get_metrics_overview",
 ] as const;
 
 /** Execute one tool via internal implementation. */
@@ -101,10 +103,24 @@ export async function executeInternalTool(
       const data = await elastic.getTimeseries(metric, site, from, to, interval);
       return { tool: name, content: JSON.stringify(data, null, 2) };
     }
+    if (name === "elastic.get_timeseries_by_site") {
+      const metric = String(args.metric ?? "");
+      const from = String(args.from ?? "now-15m");
+      const to = String(args.to ?? "now");
+      const interval = String(args.interval ?? "1m");
+      const data = await elastic.getTimeseriesBySite(metric, from, to, interval);
+      return { tool: name, content: JSON.stringify(data, null, 2) };
+    }
     if (name === "elastic.detect_anomalies") {
       const from = String(args.from ?? "now-30m");
       const to = String(args.to ?? "now");
       const data = await elastic.getAnomalies(from, to);
+      return { tool: name, content: JSON.stringify(data, null, 2) };
+    }
+    if (name === "elastic.get_metrics_overview") {
+      const from = String(args.from ?? "now-1h");
+      const to = String(args.to ?? "now");
+      const data = await elastic.getMetricsDocCount(from, to);
       return { tool: name, content: JSON.stringify(data, null, 2) };
     }
     if (name === "elastic.search") {
@@ -264,7 +280,7 @@ export function cannedQuestionToTools(questionId: string): MCPToolCall[] {
     case "sanitizer_by_site":
       return [
         {
-          name: "elastic.get_timeseries",
+          name: "elastic.get_timeseries_by_site",
           arguments: {
             metric: "sanitation.sanitizer_ppm",
             from: "now-15m",
@@ -279,6 +295,7 @@ export function cannedQuestionToTools(questionId: string): MCPToolCall[] {
       ];
     case "status_summary":
       return [
+        { name: "elastic.get_metrics_overview", arguments: { from: "now-1h", to: "now" } },
         { name: "elastic.detect_anomalies", arguments: { from, to } },
         {
           name: "elastic.get_timeseries",
